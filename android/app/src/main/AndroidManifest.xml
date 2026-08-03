@@ -9,7 +9,8 @@
     <application
         android:label="Lan Mouse CEC"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/tv_banner">
         <!-- Required by Shizuku: its server obtains and returns the binder
              through this per-app provider. Key Mapper declares the same
              endpoint; without it pingBinder() is always false. -->
@@ -24,11 +25,13 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:banner="@drawable/tv_banner"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
+            <meta-data android:name="android.app.banner" android:resource="@drawable/tv_banner" />
             <meta-data android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
             <intent-filter>
