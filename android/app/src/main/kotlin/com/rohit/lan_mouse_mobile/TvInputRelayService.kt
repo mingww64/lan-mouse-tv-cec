@@ -53,7 +53,12 @@ class TvInputRelayService : Service() {
     @Volatile private var sourceState = SourceState.Unknown
     private val sourceReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == HIDE_SOURCE_OVERLAY) {
+                hideSourceOverlay()
+                return
+            }
             val source = intent.getIntExtra("arg1", Int.MIN_VALUE)
+            val stateName = intent.getStringExtra("state").orEmpty()
             sourceState = when (source) {
                 TCL_SOURCE_HDMI -> SourceState.Hdmi1
                 TCL_SOURCE_HDMI2 -> SourceState.Hdmi2
@@ -61,10 +66,16 @@ class TvInputRelayService : Service() {
                 TCL_SOURCE_HDMI4 -> SourceState.Hdmi4
                 TCL_SOURCE_AV -> SourceState.Av
                 TCL_SOURCE_ANDROID -> SourceState.Android
-                else -> SourceState.Unknown
+                else -> when {
+                    stateName.equals("av", ignoreCase = true) -> SourceState.Av
+                    stateName.contains("live", ignoreCase = true) ||
+                        stateName.contains("dtv", ignoreCase = true) ||
+                        stateName.equals("tv", ignoreCase = true) -> SourceState.LiveTv
+                    else -> SourceState.Unknown
+                }
             }
             gateUntil = 0
-            Log.i(TAG, "TCL source changed: arg1=$source, state=$sourceState")
+            Log.i(TAG, "TCL source changed: arg1=$source, state=$sourceState, name=$stateName")
             gateMonitor.execute {
                 currentTclHardwareId = resolveTclHardwareId(sourceState)
                 showTclSourceOverlay(sourceState, currentTclHardwareId)
@@ -123,7 +134,10 @@ class TvInputRelayService : Service() {
             val channel = NotificationChannel(CHANNEL_ID, "Lan Mouse CEC relay", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
-        registerReceiver(sourceReceiver, IntentFilter(TCL_SOURCE_CHANGED))
+        registerReceiver(sourceReceiver, IntentFilter().apply {
+            addAction(TCL_SOURCE_CHANGED)
+            addAction(HIDE_SOURCE_OVERLAY)
+        })
     }
 
     private fun captureLoop() {
@@ -305,7 +319,10 @@ class TvInputRelayService : Service() {
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val fallbackEnabled = prefs.getBoolean(CUSTOM_FALLBACK_ENABLED, false)
         val needsFallbackGate = sourceState == SourceState.Unknown && fallbackEnabled
-        val needsSourceOverlay = fallbackEnabled && prefs.getBoolean(SHOW_SOURCE_OVERLAY, true)
+        // A known TCL source already has a direct hardware gate. Running a
+        // Shizuku command from every input event here caused severe lag.
+        val needsSourceOverlay = sourceState == SourceState.Unknown &&
+            fallbackEnabled && prefs.getBoolean(SHOW_SOURCE_OVERLAY, true)
         var detectedSource: String? = null
         val now = System.currentTimeMillis()
         if ((needsFallbackGate || needsSourceOverlay) && now >= gateUntil) {
@@ -317,9 +334,10 @@ class TvInputRelayService : Service() {
         }
         val inputIdentifier = inputIdentifier(prefs)
         when (sourceState) {
-            SourceState.Hdmi1, SourceState.Hdmi2, SourceState.Hdmi3, SourceState.Hdmi4 ->
+            SourceState.Hdmi1, SourceState.Hdmi2, SourceState.Hdmi3, SourceState.Hdmi4,
+            SourceState.Av, SourceState.LiveTv ->
                 return matchesTclInput(sourceState, currentTclHardwareId, inputIdentifier)
-            SourceState.Av, SourceState.Android -> return false
+            SourceState.Android -> return false
             SourceState.Unknown -> Unit
         }
         // TCL uses its source-change broadcast. A command fallback is only
@@ -341,17 +359,29 @@ class TvInputRelayService : Service() {
         output
     } catch (_: Exception) { "" }
 
-    /** TCL broadcasts identify the selected logical input. Resolve the port's
-     * hardware ID once at each transition so the confirmation overlay works
-     * even on TVs where `dumpsys activity starter` has no passthrough record. */
+    /** Resolve the framework hardware ID once at a source transition. */
     private fun resolveTclHardwareId(source: SourceState): String? {
-        val port = source.tclPort ?: return null
+        val expectedType = when (source) {
+            SourceState.Hdmi1, SourceState.Hdmi2, SourceState.Hdmi3, SourceState.Hdmi4 -> 9
+            SourceState.Av -> 3
+            SourceState.LiveTv -> 2
+            else -> return null
+        }
         return try {
             val process = startShizukuProcess(arrayOf("sh", "-c", "dumpsys tv_input"))
             val dump = process.inputStream.bufferedReader().readText()
             process.waitFor()
-            TCL_HARDWARE.findAll(dump).firstOrNull { it.groupValues[2].toInt() == port }
-                ?.groupValues?.get(1)
+            val registered = TV_INPUT_ID.findAll(dump).map { it.groupValues[1] }.toSet()
+            dump.lineSequence().mapNotNull { line ->
+                val hardware = TV_HARDWARE.find(line) ?: return@mapNotNull null
+                val id = hardware.groupValues[1]
+                val type = hardware.groupValues[2].toInt()
+                val port = HDMI_PORT.find(line)?.groupValues?.get(1)?.toIntOrNull()
+                Triple(id, type, port)
+            }.firstOrNull { (id, type, port) ->
+                type == expectedType && id in registered &&
+                    (source.tclPort == null || source.tclPort == port)
+            }?.first
         } catch (_: Exception) { null }
     }
 
@@ -374,7 +404,8 @@ class TvInputRelayService : Service() {
                 showSourceOverlay("HDMI $port" + (hardwareId?.let { "  (HW$it)" } ?: ""))
             }
             SourceState.Android -> showSourceOverlay("Android TV")
-            SourceState.Av -> showSourceOverlay("AV")
+            SourceState.Av -> showSourceOverlay("AV" + (hardwareId?.let { "  (HW$it)" } ?: ""))
+            SourceState.LiveTv -> showSourceOverlay("Live TV" + (hardwareId?.let { "  (HW$it)" } ?: ""))
             SourceState.Unknown -> Unit
         }
     }
@@ -406,8 +437,8 @@ class TvInputRelayService : Service() {
                 wm.addView(view, params)
                 sourceOverlay = view
                 overlayHandler.removeCallbacksAndMessages(OVERLAY_TOKEN)
-                overlayHandler.postAtTime({ hideSourceOverlay() }, OVERLAY_TOKEN,
-                    System.currentTimeMillis() + OVERLAY_DURATION_MS)
+                overlayHandler.postAtTime({ fadeSourceOverlay(view) }, OVERLAY_TOKEN,
+                    System.currentTimeMillis() + OVERLAY_DURATION_MS - OVERLAY_FADE_DURATION_MS)
             } catch (error: Exception) {
                 Log.w(TAG, "unable to show source-ID overlay", error)
             }
@@ -417,10 +448,21 @@ class TvInputRelayService : Service() {
     private fun hideSourceOverlay() {
         overlayHandler.post {
             sourceOverlay?.let { view ->
+                view.animate().cancel()
                 try { getSystemService(WindowManager::class.java).removeView(view) } catch (_: Exception) { }
             }
             sourceOverlay = null
         }
+    }
+
+    private fun fadeSourceOverlay(view: TextView) {
+        if (sourceOverlay !== view) return
+        view.animate().alpha(0f).setDuration(OVERLAY_FADE_DURATION_MS).withEndAction {
+            if (sourceOverlay === view) {
+                try { getSystemService(WindowManager::class.java).removeView(view) } catch (_: Exception) { }
+                sourceOverlay = null
+            }
+        }.start()
     }
 
     private fun isSelectedDevice(devicePath: String): Boolean {
@@ -454,8 +496,10 @@ class TvInputRelayService : Service() {
         private const val NOTIFICATION_ID = 4242
         private const val TAG = "TvInputRelay"
         private const val OVERLAY_DURATION_MS = 4_000L
+        private const val OVERLAY_FADE_DURATION_MS = 350L
         private val OVERLAY_TOKEN = Any()
         private const val TCL_SOURCE_CHANGED = "com.tcl.inputsourcechanged"
+        const val HIDE_SOURCE_OVERLAY = "com.rohit.lan_mouse_mobile.HIDE_SOURCE_OVERLAY"
         const val TCL_SOURCE_HDMI = 8
         const val TCL_SOURCE_HDMI2 = 9
         const val TCL_SOURCE_HDMI3 = 10
@@ -464,7 +508,9 @@ class TvInputRelayService : Service() {
         private const val TCL_SOURCE_AV = 3
         private const val TCL_SOURCE_ANDROID = 17
         private val EVENT = Regex("^(/dev/input/event\\d+):\\s+([0-9a-fA-F]{4})\\s+([0-9a-fA-F]{4})\\s+([0-9a-fA-F]{8})")
-        private val TCL_HARDWARE = Regex("TvInputHardwareInfo \\{id=(\\d+), type=9,.*?hdmi_port=(\\d+),")
+        private val TV_INPUT_ID = Regex("TvInputInfo\\{id=.*?/HW(\\d+)")
+        private val TV_HARDWARE = Regex("TvInputHardwareInfo \\{id=(\\d+), type=(\\d+),")
+        private val HDMI_PORT = Regex("hdmi_port=(\\d+),")
         private val TCL_ARG = Regex("^(?:ARG1\\s*=\\s*)?(\\d+)$")
         private val HW_ID = Regex("^HW(\\d+)$")
         private val DEVICE_HEADER = Regex("^add device \\d+: (/dev/input/event\\d+)$")
@@ -487,6 +533,7 @@ class TvInputRelayService : Service() {
         Unknown,
         Android(TCL_SOURCE_ANDROID),
         Av(TCL_SOURCE_AV),
+        LiveTv,
         Hdmi1(TCL_SOURCE_HDMI, 1),
         Hdmi2(TCL_SOURCE_HDMI2, 2),
         Hdmi3(TCL_SOURCE_HDMI3, 3),

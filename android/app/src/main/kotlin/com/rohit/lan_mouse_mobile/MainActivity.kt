@@ -225,6 +225,10 @@ class MainActivity: FlutterActivity() {
                                 .putString(TvInputRelayService.GATE_COMMAND, command)
                                 .putBoolean(TvInputRelayService.SHOW_SOURCE_OVERLAY, showOverlay)
                                 .apply()
+                            if (!showOverlay) {
+                                sendBroadcast(Intent(TvInputRelayService.HIDE_SOURCE_OVERLAY)
+                                    .setPackage(packageName))
+                            }
                             persistActiveProfile(prefs)
                             result.success(null)
                         }
