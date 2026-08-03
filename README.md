@@ -8,6 +8,27 @@ CEC-style experience without modifying the desktop receiver.
 This project is a GPL-3.0 derivative of
 [Lan Mouse Mobile](https://github.com/rohitsangwan01/lan-mouse-mobile).
 
+## TV interface
+
+The Android TV home screen keeps connection, TV-input, and capture controls
+available from the D-pad. Profiles provide a separate, focused relay setup for
+each Lan Mouse client.
+
+<p align="center">
+  <img src="screenshots/light.png" alt="Lan Mouse CEC TV interface" width="360">
+</p>
+
+## TV banner
+
+The Leanback / Projectivy launcher banner is a 16:9 illustration of the
+keyboard-and-mouse relay crossing HDMI through CEC-style input switching.
+
+<p align="center">
+  <img src="android/app/src/main/res/drawable-nodpi/tv_banner.jpg" alt="Lan Mouse CEC Android TV banner" width="760">
+</p>
+
+This is the exact launcher asset packaged in the APK.
+
 ## Features
 
 - Shizuku-backed privileged native `getevent`/`EVIOCGRAB` capture.
