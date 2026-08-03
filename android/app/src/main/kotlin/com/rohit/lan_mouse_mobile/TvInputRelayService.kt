@@ -27,9 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import rikka.shizuku.Shizuku
 
 /**
- * Root-only capture service. It observes getevent without EVIOCGRAB, so TV input
- * continues to work normally. The user-configured gate is fail-closed and must
- * print exactly "active" before any event leaves this service.
+ * Root-only capture service. Shizuku launches the native bridge, which reads
+ * only selected evdev devices with EVIOCGRAB while the TV-input gate is active.
+ * `getevent -il` is used separately for device discovery and path resolution.
  */
 class TvInputRelayService : Service() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -204,9 +204,9 @@ class TvInputRelayService : Service() {
         }
     }
 
-    /** The exit chord deliberately stops this service. TCL does not resend its
-     * source-change broadcast when Resume starts a fresh service while HDMI is
-     * still selected, so retain the last confirmed source for that handoff. */
+    /** Retain the last source for a fresh service start. The capture-release
+     * chord itself does not stop this service; it waits for a source transition
+     * before clearing its suspended state. */
     private fun rememberCurrentSource() {
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(LAST_SOURCE_STATE, sourceState.name)

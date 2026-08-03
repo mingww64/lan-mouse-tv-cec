@@ -9,7 +9,9 @@ TV-input gating, profiles, or deployment behavior. In particular:
   not change the Windows receiver or TV partitions.
 - The capture bridge uses privileged `EVIOCGRAB` only for explicitly selected
   USB input devices. Never grab TCL IR, power, sleep, wake, restart, or lock
-  devices. The emergency exit chord is Ctrl+Alt+Shift+Z.
+  devices. Ctrl+Alt+Shift+Z releases the active grab but keeps the relay
+  service/session alive; capture resumes only after the trigger input is left
+  and selected again. Use **End capture** to stop the service.
 - TV inputs are discovered through Android's TV Input Framework. Profiles
   choose a discovered `HW…` input as their relay trigger.
 - Build the Rust libraries for every intended APK ABI before building the APK,
@@ -22,8 +24,9 @@ TV-input gating, profiles, or deployment behavior. In particular:
 
 ## Documentation and release checks
 
-- Keep `README.md`'s **TV interface** screenshot and **TV banner** preview in
-  sync with the shipped experience when those assets change.
+- Keep `README.md`'s Android TV home/client screenshots and built-in **TV
+  banner** preview in sync with the shipped experience when those assets
+  change.
 - Verify a banner build with `aapt dump badging <apk>`: the
   `leanback-launchable-activity` must report a `banner` resource.
 - A universal release builds `armeabi-v7a`, `arm64-v8a`, and `x86_64`; do not
