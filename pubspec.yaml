@@ -10,22 +10,23 @@ dependencies:
   flutter:
     sdk: flutter
   buffer: ^1.2.3
-  cupertino_icons: ^1.0.8
-  network_info_plus: ^6.1.1
-  flutter_svg: ^2.0.14
-  shared_preferences: ^2.3.3
-  virtual_keyboard_custom_layout: ^1.0.0
-  path_provider: ^2.1.5
-  flutter_rust_bridge: 2.6.0
+  cupertino_icons: ^1.0.9
+  network_info_plus: ^8.2.1
+  flutter_svg: ^2.3.0
+  shared_preferences: ^2.5.5
+  virtual_keyboard_custom_layout: ^1.0.1
+  path_provider: ^2.1.6
+  url_launcher: ^6.3.2
+  flutter_rust_bridge: ^2.12.0
   rust_lib_lan_mouse_mobile:
     path: rust_builder
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
-  flutter_launcher_icons: ^0.14.1
-  rename_app: ^1.6.1
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  rename_app: ^1.6.6
   integration_test:
     sdk: flutter
 

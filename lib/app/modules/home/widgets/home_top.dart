@@ -11,16 +11,16 @@ class HomeTop extends StatelessWidget {
       children: [
         SvgPicture.asset(
           'assets/logo.svg',
-          width: 120,
+          width: 96,
         ),
-        SizedBox(height: 20, width: MediaQuery.sizeOf(context).width),
+        SizedBox(height: 16, width: MediaQuery.sizeOf(context).width),
         Text(
-          "Lan Mouse",
+          "Lan Mouse CEC",
           style: Theme.of(context).textTheme.titleLarge,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Text(
-          "easily use your mouse and keyboard on multiple computers",
+          "Choose a Lan Mouse client. Keys and mouse are relayed only while its selected TV input is active.",
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),

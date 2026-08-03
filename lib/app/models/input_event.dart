@@ -31,4 +31,13 @@ enum ButtonType {
       Forward => _BTN_FORWARD,
     };
   }
+
+  static ButtonType? fromEvdev(String code) {
+    return switch (code.toLowerCase()) {
+      '0110' => ButtonType.Left,
+      '0111' => ButtonType.Right,
+      '0112' => ButtonType.Middle,
+      _ => null,
+    };
+  }
 }

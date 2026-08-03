@@ -3,11 +3,23 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
-        android:label="Lan Mouse"
+        android:label="Lan Mouse CEC"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Required by Shizuku: its server obtains and returns the binder
+             through this per-app provider. Key Mapper declares the same
+             endpoint; without it pingBinder() is always false. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -23,7 +35,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
         </activity>
+        <service android:name=".TvInputRelayService" android:exported="false" android:foregroundServiceType="connectedDevice" />
         <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>
     <queries>

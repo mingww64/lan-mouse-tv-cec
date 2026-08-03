@@ -35,10 +35,22 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.debug
+            // ShizukuPlus unmarshals compatibility Parcelables by class name.
+            // They are not statically called by Android framework code, so keep
+            // them out of release shrinking.
+            minifyEnabled false
+            shrinkResources false
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Key Mapper uses Shizuku to launch its privileged system bridge outside
+    // the ordinary app UID.  The provider publishes our package to Shizuku.
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
 }

@@ -1,7 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lan_mouse_mobile/app/services/lan_mouse_server.dart';
-import 'package:network_info_plus/network_info_plus.dart';
 
 class HomeGeneral extends StatefulWidget {
   const HomeGeneral({super.key});
@@ -11,155 +11,170 @@ class HomeGeneral extends StatefulWidget {
 }
 
 class _HomeGeneralState extends State<HomeGeneral> {
-  LanMouseServer lanMouseServer = LanMouseServer.instance;
-  String fingerprint = "";
-
-  var portController = TextEditingController();
-  var hostnameController = TextEditingController();
+  final LanMouseServer lanMouseServer = LanMouseServer.instance;
+  final portController = TextEditingController();
+  List<InternetAddress> interfaces = const [];
+  String fingerprint = '';
 
   @override
   void initState() {
     super.initState();
     portController.text = lanMouseServer.defaultClient.port.toString();
-    hostnameController.text = lanMouseServer.defaultClient.host;
     _refreshData();
   }
 
-  void _refreshData() async {
-    // Load Ip
+  @override
+  void dispose() {
+    portController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshData() async {
     try {
-      NetworkInfo network = NetworkInfo();
-      hostnameController.text = (await network.getWifiIP()) ?? "127.0.0.1";
-    } catch (e) {
-      showSnackbar("NetworkInfoError: $e");
-    }
-    // Load FingerPrint
-    try {
-      String? data = await lanMouseServer.getFingerprint();
-      if (data != null) {
-        setState(() {
-          fingerprint = data;
-        });
-      } else {
-        showSnackbar("Failed to get fingerprint");
+      final addresses = await lanMouseServer.localBindAddresses();
+      if (addresses.isNotEmpty &&
+          !addresses.any((address) =>
+              address.address == lanMouseServer.defaultClient.host)) {
+        lanMouseServer.defaultClient.host = addresses.first.address;
       }
-    } catch (e) {
-      showSnackbar("Failed to get fingerprint: $e");
-    }
-    _syncHost();
-  }
-
-  void showSnackbar(message) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message.toString())),
-      );
+      if (mounted) setState(() => interfaces = addresses);
+    } catch (_) {}
+    try {
+      final data = await lanMouseServer.getFingerprint();
+      if (mounted) setState(() => fingerprint = data ?? 'Unavailable');
+    } catch (_) {
+      if (mounted) setState(() => fingerprint = 'Unavailable');
     }
   }
 
-  void _syncHost() {
-    lanMouseServer.defaultClient.host = hostnameController.text;
-    lanMouseServer.defaultClient.port = int.parse(portController.text);
+  Future<void> _selectInterface() async {
+    if (interfaces.isEmpty) {
+      await _refreshData();
+      if (interfaces.isEmpty || !mounted) return;
+    }
+    var selected = lanMouseServer.defaultClient.host;
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Bind interface'),
+          content: SizedBox(
+            width: 520,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Choose an IPv4 address assigned to this TV.'),
+              const SizedBox(height: 12),
+              Flexible(
+                child: RadioGroup<String>(
+                  groupValue: selected,
+                  onChanged: (value) => setDialogState(() => selected = value!),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final address in interfaces)
+                        RadioListTile<String>(
+                          value: address.address,
+                          title: Text(address.address),
+                          subtitle: const Text('Local interface'),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Use address')),
+          ],
+        ),
+      ),
+    );
+    if (save == true && selected.isNotEmpty) {
+      setState(() => lanMouseServer.defaultClient.host = selected);
+    }
+  }
+
+  Future<void> _editPort() async {
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Relay port'),
+        content: TextField(
+          controller: portController,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(helperText: '1–65535'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    final port = int.tryParse(portController.text);
+    if (save == true && port != null && port >= 1 && port <= 65535) {
+      setState(() => lanMouseServer.defaultClient.port = port);
+    }
+  }
+
+  void _copy(String value, String label) {
+    Clipboard.setData(ClipboardData(text: value));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$label copied')));
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              "General",
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text('Network', style: Theme.of(context).textTheme.titleSmall),
+            const Spacer(),
             IconButton(
-              onPressed: _refreshData,
-              icon: const Icon(Icons.refresh),
-            ),
-          ],
-        ),
-        Card(
-          margin: EdgeInsets.zero,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Row(
-                  children: [
-                    const Text("port"),
-                    Expanded(
-                      child: TextFormField(
-                        controller: portController,
-                        maxLength: 4,
-                        textAlign: TextAlign.right,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: const InputDecoration(
-                          hintText: "Port",
-                          border: InputBorder.none,
-                          counterText: "",
-                        ),
-                      ),
-                    )
-                  ],
-                ),
+                tooltip: 'Refresh local interfaces',
+                onPressed: _refreshData,
+                icon: const Icon(Icons.refresh)),
+          ]),
+          Card(
+            child: Column(children: [
+              ListTile(
+                minVerticalPadding: 14,
+                leading: const Icon(Icons.router_outlined),
+                title: const Text('Bind interface'),
+                subtitle: Text(lanMouseServer.defaultClient.host),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _selectInterface,
               ),
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Row(
-                  children: [
-                    const Text("hostname"),
-                    Expanded(
-                      child: TextFormField(
-                        controller: hostnameController,
-                        textAlign: TextAlign.right,
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          hintText: "Host",
-                          counterText: "",
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    InkWell(
-                      onTap: () {
-                        Clipboard.setData(
-                          ClipboardData(text: hostnameController.text),
-                        );
-                      },
-                      child: const Icon(Icons.copy),
-                    ),
-                  ],
-                ),
+              const Divider(height: 1),
+              ListTile(
+                minVerticalPadding: 14,
+                leading: const Icon(Icons.settings_ethernet),
+                title: const Text('Relay port'),
+                subtitle: Text(portController.text),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _editPort,
               ),
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: ListTile(
-                  minVerticalPadding: 0,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.fingerprint),
-                  title: const Text("Certificate Fingerprint"),
-                  subtitle: Text(
-                    fingerprint,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: fingerprint));
-                    showSnackbar("Fingerprint copied to clipboard");
-                  },
-                ),
+              const Divider(height: 1),
+              ListTile(
+                minVerticalPadding: 14,
+                leading: const Icon(Icons.fingerprint),
+                title: const Text('Certificate fingerprint'),
+                subtitle: Text(fingerprint,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: const Icon(Icons.copy),
+                onTap: () => _copy(fingerprint, 'Fingerprint'),
               ),
-              const SizedBox(height: 15),
-            ],
+            ]),
           ),
-        )
-      ],
-    );
-  }
+        ],
+      );
 }

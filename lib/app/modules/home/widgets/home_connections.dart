@@ -44,8 +44,8 @@ class _HomeConnectionsState extends State<HomeConnections> {
               "Connections",
               style: Theme.of(context).textTheme.titleSmall,
             ),
-            InkWell(
-              onTap: () {
+            FilledButton.icon(
+              onPressed: () {
                 showDialog(
                   context: context,
                   builder: (_) {
@@ -58,15 +58,8 @@ class _HomeConnectionsState extends State<HomeConnections> {
                   },
                 );
               },
-              child: Row(
-                children: [
-                  const Icon(Icons.add),
-                  Text(
-                    'Add',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ],
-              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Add client'),
             )
           ],
         ),
@@ -85,30 +78,18 @@ class _HomeConnectionsState extends State<HomeConnections> {
                   physics: const NeverScrollableScrollPhysics(),
                   itemBuilder: (BuildContext context, int index) {
                     Client client = clients[index];
-                    return InkWell(
+                    return ListTile(
+                      minVerticalPadding: 14,
+                      leading: const Icon(Icons.computer_outlined),
+                      title: Text(client.host),
+                      subtitle: Text('Port ${client.port}'),
                       onTap: () => connectClient(client),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(client.host),
-                                Text(
-                                  "Port: ${client.port}",
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                        color: Colors.grey,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          const Icon(Icons.chevron_right),
                           IconButton(
+                            tooltip: 'Delete client',
                             onPressed: () {
                               storageService.deleteClient(client);
                               setState(() {

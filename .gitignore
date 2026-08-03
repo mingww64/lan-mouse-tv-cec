@@ -41,3 +41,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Rebuilt locally from `rust/` by the documented Cargo NDK command.
+/android/app/src/main/jniLibs/

@@ -1,0 +1,2 @@
+-keep class rikka.shizuku.BinderContainer { *; }
+-keep class af.shizuku.api.BinderContainer { *; }

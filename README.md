@@ -1,28 +1,36 @@
-# Lan Mouse Mobile
+# Lan Mouse TV CEC
 
-Lan Mouse Mobile is a mobile client for [Lan Mouse](https://github.com/feschber/lan-mouse), enabling you to control your desktop's mouse and keyboard from your mobile device.
+An Android TV client built from the GPL-3.0 [Lan Mouse Mobile](https://github.com/rohitsangwan01/lan-mouse-mobile) proof of concept. It uses that project's existing Lan Mouse DTLS protocol implementation, so the desktop runs the standard [Lan Mouse](https://github.com/feschber/lan-mouse) application—there is no custom Windows receiver.
 
-<picture>
-    <source media="(prefers-color-scheme: dark)" srcset="/screenshots/dark.png?raw=true" height=600>
-    <source media="(prefers-color-scheme: light)" srcset="/screenshots/light.png?raw=true" height=600>
-    <img alt="Screenshot of Lan-Mouse" srcset="/screenshots/dark.png" height=600>
-</picture>
+On a rooted TCL QM850G, the app observes the TV's physical key and relative-mouse events through `getevent`, then forwards them to the selected Lan Mouse desktop **only while a configured HDMI input is active**. The TV still receives all of its own input, making this behave like a CEC-style remote relay rather than taking over the device.
 
-## Getting Started
+## Connect and configure
 
-Download app from [Release](https://github.com/rohitsangwan01/lan-mouse-mobile/releases) section
+1. Run Lan Mouse on the desktop, add the TV's IP as a client, and authorize the TV fingerprint. Lan Mouse uses UDP port `4242` by default.
+2. Install and open this APK on the TV. Add the desktop address using the original Lan Mouse Mobile connection screen.
+3. On the connection page, select the HDMI settings icon. The relay starts fail-closed with `echo inactive`.
+4. With the PC's HDMI input selected, obtain the TV input-service state over ADB:
 
-Ensure your mobile device and desktop are on the same network. Add your mobile's IP to the Desktop LanMouse client and enable it. Then, enter your desktop's IP on the mobile app to start controlling your desktop.
+   ```sh
+   adb shell su -c 'dumpsys tv_input > /data/local/tmp/tv-input-state.txt'
+   adb pull /data/local/tmp/tv-input-state.txt
+   ```
 
-## Developer's Guide
+5. Set the HDMI gate to a command that emits exactly `active` only when that input is selected. Test the command at an ADB shell first. Switch to another source and confirm the relay stops before depending on it.
 
-This section guides you through setting up and running LanMouseMobile for development purposes.
+## Input and safety boundaries
 
-#### Prerequisites:
+- Forwarded: standard keyboard/navigation keys, mouse movement, wheel, and left/right/middle buttons.
+- Excluded: TV power, volume, source, settings, and vendor-specific keys.
+- The capture service is foreground and does not use `EVIOCGRAB`; input continues to reach the TV.
+- Root is required to read `/dev/input/event*`. Denying root simply prevents the relay from starting.
+- Lan Mouse provides the encrypted desktop transport and its existing desktop authorization flow. The HDMI gate executes locally as root, so configure it only with a command you trust.
 
-- Install the latest version of [Flutter](https://flutter-ko.dev/get-started/install) for your operating system. You can find instructions on the official Flutter website.
-- Follow the [Flutter](https://flutter-ko.dev/get-started/install) setup guide for your platform.
+## Build
 
-#### Running/Debugging the App:
+```sh
+flutter pub get
+flutter build apk --release
+```
 
-- Once Flutter is set up, run `flutter pub get` to download dependencies, and run `flutter run` to start the app
+The Android TV launcher intent and Android 11-compatible foreground service are in the Android app module. The TV capture bridge is native Kotlin; it sends events only to the Flutter/Rust Lan Mouse client.
