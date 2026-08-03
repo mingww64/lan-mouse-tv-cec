@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:lan_mouse_mobile/app/models/input_event.dart';
 import 'package:lan_mouse_mobile/app/models/keyboard_event.dart' as lan_mouse;
@@ -9,15 +10,12 @@ import 'package:lan_mouse_mobile/app/services/lan_mouse_server.dart';
 /// existing DTLS connection. The HDMI source decision remains native so that
 /// no event is forwarded while the selected input is not the PC.
 class TvInputCapture {
-  TvInputCapture._();
   static final instance = TvInputCapture._();
   static const _control = MethodChannel('lan_mouse_tv_cec/control');
   static const _events = EventChannel('lan_mouse_tv_cec/input_events');
   StreamSubscription<dynamic>? _subscription;
-  final _ended = StreamController<void>.broadcast();
-
-  /// Fires when the exclusive capture bridge exits via its CEC escape chord.
-  Stream<void> get onEnded => _ended.stream;
+  final running = ValueNotifier<bool>(false);
+  TvInputCapture._();
 
   Future<void> activateProfile(String profileId) =>
       _control.invokeMethod<void>('activateProfile', profileId);
@@ -25,12 +23,19 @@ class TvInputCapture {
   Future<void> start() async {
     _subscription ??= _events.receiveBroadcastStream().listen(_onEvent);
     await _control.invokeMethod<void>('start');
+    running.value = true;
+  }
+
+  Future<void> refreshRunningState() async {
+    running.value =
+        (await _control.invokeMethod<bool>('isCaptureRunning')) ?? false;
   }
 
   Future<void> stop() async {
     await _control.invokeMethod<void>('stop');
     await _subscription?.cancel();
     _subscription = null;
+    running.value = false;
   }
 
   Future<CustomInputFallback> getCustomFallback() async {
@@ -108,11 +113,9 @@ class TvInputCapture {
     final server = LanMouseServer.instance;
     switch (type) {
       case 'exit':
-        // Native bridge consumed Ctrl+Alt+Shift+Z, released EVIOCGRAB, and
-        // stopped the service. Closing the DTLS sender also releases any
-        // modifiers that Windows may have seen before the chord completed.
-        server.leaveClient();
-        _ended.add(null);
+        // The exit chord temporarily releases EVIOCGRAB, letting the selected
+        // keyboard control Android and change source. Keep the DTLS session so
+        // capture can automatically resume after the configured input returns.
         break;
       default:
         final code = event['code'];

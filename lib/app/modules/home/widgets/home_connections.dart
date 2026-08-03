@@ -23,8 +23,8 @@ class _HomeConnectionsState extends State<HomeConnections> {
     super.initState();
   }
 
-  void connectClient(Client client) async {
-    Navigator.push(
+  Future<void> connectClient(Client client) async {
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => Server(client: client),
@@ -41,10 +41,12 @@ class _HomeConnectionsState extends State<HomeConnections> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              "Connections",
+              'Lan Mouse clients',
               style: Theme.of(context).textTheme.titleSmall,
             ),
-            FilledButton.icon(
+            const Spacer(),
+            IconButton(
+              tooltip: 'Add Lan Mouse client',
               onPressed: () {
                 showDialog(
                   context: context,
@@ -59,19 +61,19 @@ class _HomeConnectionsState extends State<HomeConnections> {
                 );
               },
               icon: const Icon(Icons.add),
-              label: const Text('Add client'),
             )
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Card(
           margin: EdgeInsets.zero,
           child: clients.isEmpty
-              ? const Center(
-                  child: Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text("No Clients"),
-                ))
+              ? const ListTile(
+                  minVerticalPadding: 14,
+                  leading: Icon(Icons.computer_outlined),
+                  title: Text('No Lan Mouse clients'),
+                  subtitle: Text('Press + to add one.'),
+                )
               : ListView.separated(
                   itemCount: clients.length,
                   shrinkWrap: true,

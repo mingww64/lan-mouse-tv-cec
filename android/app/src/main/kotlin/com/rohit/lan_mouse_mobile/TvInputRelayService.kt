@@ -48,9 +48,12 @@ class TvInputRelayService : Service() {
     private var wheelXHighRes = 0
     private val overlayHandler = Handler(Looper.getMainLooper())
     private var sourceOverlay: TextView? = null
+    private var sourceOverlayFade: Runnable? = null
     private var lastFallbackSource: String? = null
     @Volatile private var currentTclHardwareId: String? = null
     @Volatile private var sourceState = SourceState.Unknown
+    @Volatile private var captureSuspended = false
+    @Volatile private var sawInputLeaveWhileSuspended = false
     private val sourceReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == HIDE_SOURCE_OVERLAY) {
@@ -78,7 +81,17 @@ class TvInputRelayService : Service() {
             Log.i(TAG, "TCL source changed: arg1=$source, state=$sourceState, name=$stateName")
             gateMonitor.execute {
                 currentTclHardwareId = resolveTclHardwareId(sourceState)
+                rememberCurrentSource()
                 showTclSourceOverlay(sourceState, currentTclHardwareId)
+                if (captureSuspended) {
+                    if (!isActiveInput()) {
+                        sawInputLeaveWhileSuspended = true
+                        Log.i(TAG, "capture remains released until configured input returns")
+                    } else if (sawInputLeaveWhileSuspended) {
+                        captureSuspended = false
+                        Log.i(TAG, "configured input returned; capture resumed")
+                    }
+                }
                 syncCapture()
             }
         }
@@ -89,6 +102,8 @@ class TvInputRelayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (running.compareAndSet(false, true)) {
             Log.i(TAG, "starting Shizuku getevent capture")
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(CAPTURE_SERVICE_RUNNING, true).apply()
             startForeground(NOTIFICATION_ID, notification())
             gateMonitor.scheduleWithFixedDelay({ syncCapture() }, 0, 500, TimeUnit.MILLISECONDS)
         }
@@ -97,6 +112,8 @@ class TvInputRelayService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "capture service stopped")
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(CAPTURE_SERVICE_RUNNING, false).apply()
         running.set(false)
         captureProcess?.destroy()
         hideSourceOverlay()
@@ -156,8 +173,10 @@ class TvInputRelayService : Service() {
             BufferedReader(InputStreamReader(process.inputStream)).useLines { lines ->
                 lines.forEach { line ->
                     if (line == "@CEC_EXIT") {
+                        captureSuspended = true
+                        sawInputLeaveWhileSuspended = false
                         TvInputRelayBridge.emit(mapOf("type" to "exit", "code" to "", "value" to 0))
-                        stopSelf()
+                        Log.i(TAG, "capture released; waiting for source change or overlay resume")
                     } else if (running.get()) parseLine(line)
                 }
             }
@@ -173,11 +192,36 @@ class TvInputRelayService : Service() {
     }
 
     private fun syncCapture() {
+        if (captureSuspended) {
+            captureProcess?.destroy()
+            return
+        }
         val active = isActiveInput()
         val process = captureProcess
         if (!active && process != null) { process.destroy(); return }
         if (active && process == null && running.get() && launching.compareAndSet(false, true)) {
             worker.execute { captureLoop() }
+        }
+    }
+
+    /** The exit chord deliberately stops this service. TCL does not resend its
+     * source-change broadcast when Resume starts a fresh service while HDMI is
+     * still selected, so retain the last confirmed source for that handoff. */
+    private fun rememberCurrentSource() {
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(LAST_SOURCE_STATE, sourceState.name)
+            .putString(LAST_SOURCE_HARDWARE_ID, currentTclHardwareId)
+            .apply()
+    }
+
+    private fun restoreRememberedSource() {
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = prefs.getString(LAST_SOURCE_STATE, SourceState.Unknown.name)
+        sourceState = try { SourceState.valueOf(saved ?: SourceState.Unknown.name) }
+        catch (_: IllegalArgumentException) { SourceState.Unknown }
+        currentTclHardwareId = prefs.getString(LAST_SOURCE_HARDWARE_ID, null)
+        if (sourceState != SourceState.Unknown) {
+            Log.i(TAG, "restored source for capture resume: $sourceState, HW$currentTclHardwareId")
         }
     }
 
@@ -436,9 +480,12 @@ class TvInputRelayService : Service() {
                 ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 72 }
                 wm.addView(view, params)
                 sourceOverlay = view
-                overlayHandler.removeCallbacksAndMessages(OVERLAY_TOKEN)
-                overlayHandler.postAtTime({ fadeSourceOverlay(view) }, OVERLAY_TOKEN,
-                    System.currentTimeMillis() + OVERLAY_DURATION_MS - OVERLAY_FADE_DURATION_MS)
+                sourceOverlayFade?.let { overlayHandler.removeCallbacks(it) }
+                sourceOverlayFade = Runnable { fadeSourceOverlay(view) }
+                overlayHandler.postDelayed(
+                    sourceOverlayFade!!,
+                    OVERLAY_DURATION_MS - OVERLAY_FADE_DURATION_MS,
+                )
             } catch (error: Exception) {
                 Log.w(TAG, "unable to show source-ID overlay", error)
             }
@@ -447,6 +494,8 @@ class TvInputRelayService : Service() {
 
     private fun hideSourceOverlay() {
         overlayHandler.post {
+            sourceOverlayFade?.let { overlayHandler.removeCallbacks(it) }
+            sourceOverlayFade = null
             sourceOverlay?.let { view ->
                 view.animate().cancel()
                 try { getSystemService(WindowManager::class.java).removeView(view) } catch (_: Exception) { }
@@ -461,6 +510,7 @@ class TvInputRelayService : Service() {
             if (sourceOverlay === view) {
                 try { getSystemService(WindowManager::class.java).removeView(view) } catch (_: Exception) { }
                 sourceOverlay = null
+                sourceOverlayFade = null
             }
         }.start()
     }
@@ -489,6 +539,9 @@ class TvInputRelayService : Service() {
         const val CAPTURE_DEVICE_NAMES = "capture_device_names"
         const val VERBOSE_LOGGING = "verbose_logging"
         const val CAPTURE_GRAB_CONFIRMED = "capture_grab_confirmed"
+        const val CAPTURE_SERVICE_RUNNING = "capture_service_running"
+        private const val LAST_SOURCE_STATE = "last_confirmed_source_state"
+        private const val LAST_SOURCE_HARDWARE_ID = "last_confirmed_source_hardware_id"
         // Report the active passthrough hardware ID on many Android TV builds.
         // A non-TCL user supplies the corresponding PC input ID (e.g. HW5).
         const val DEFAULT_GATE = "dumpsys activity starter | grep -o 'HW[0-9]*' | head -n 1"
@@ -497,7 +550,6 @@ class TvInputRelayService : Service() {
         private const val TAG = "TvInputRelay"
         private const val OVERLAY_DURATION_MS = 4_000L
         private const val OVERLAY_FADE_DURATION_MS = 350L
-        private val OVERLAY_TOKEN = Any()
         private const val TCL_SOURCE_CHANGED = "com.tcl.inputsourcechanged"
         const val HIDE_SOURCE_OVERLAY = "com.rohit.lan_mouse_mobile.HIDE_SOURCE_OVERLAY"
         const val TCL_SOURCE_HDMI = 8

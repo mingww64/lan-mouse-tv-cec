@@ -79,8 +79,6 @@ class _HomeTvInputsState extends State<HomeTvInputs> {
                 onPressed: _loading ? null : _discover,
                 icon: const Icon(Icons.refresh)),
           ]),
-          const Text(
-              'Detected globally through Android’s TV Input Framework. Choose one per client profile.'),
           if (_loading)
             const Padding(
                 padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
@@ -95,14 +93,19 @@ class _HomeTvInputsState extends State<HomeTvInputs> {
               child: Column(children: [
                 for (final input in _inputs!)
                   ListTile(
-                    dense: true,
+                    minVerticalPadding: 14,
+                    leading: const Icon(Icons.input_outlined),
                     title: Text(input.name),
                     subtitle: Text(input.tclArg.isEmpty
                         ? input.identifier
                         : '${input.identifier} • arg1=${input.tclArg}'),
                   ),
                 if (_inputs!.isEmpty)
-                  const ListTile(title: Text('No physical inputs found.')),
+                  const ListTile(
+                    minVerticalPadding: 14,
+                    leading: Icon(Icons.tv_off_outlined),
+                    title: Text('No physical inputs found.'),
+                  ),
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.bug_report_outlined),

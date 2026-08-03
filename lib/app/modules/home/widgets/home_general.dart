@@ -144,7 +144,9 @@ class _HomeGeneralState extends State<HomeGeneral> {
                 onPressed: _refreshData,
                 icon: const Icon(Icons.refresh)),
           ]),
+          const SizedBox(height: 12),
           Card(
+            margin: EdgeInsets.zero,
             child: Column(children: [
               ListTile(
                 minVerticalPadding: 14,

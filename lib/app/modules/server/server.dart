@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lan_mouse_mobile/app/models/client.dart';
 import 'package:lan_mouse_mobile/app/services/lan_mouse_server.dart';
@@ -16,14 +15,10 @@ class Server extends StatefulWidget {
 class _ServerState extends State<Server> {
   LanMouseServer lanMouseServer = LanMouseServer.instance;
   bool waitingForAck = false;
-  StreamSubscription<void>? _captureEndedSubscription;
-  bool _returningHome = false;
 
   @override
   void initState() {
     super.initState();
-    _captureEndedSubscription =
-        TvInputCapture.instance.onEnded.listen((_) => _returnToMainMenu());
     _activateProfileAndStart();
   }
 
@@ -31,14 +26,14 @@ class _ServerState extends State<Server> {
     try {
       await TvInputCapture.instance.activateProfile(widget.client.storageKey);
       if (!mounted) return;
-      enterClient();
+      await enterClient();
       await TvInputCapture.instance.start();
     } catch (error) {
       _showErrorDialog(error.toString());
     }
   }
 
-  void enterClient() async {
+  Future<void> enterClient() async {
     setState(() {
       waitingForAck = true;
     });
@@ -55,16 +50,9 @@ class _ServerState extends State<Server> {
 
   @override
   void dispose() {
-    _captureEndedSubscription?.cancel();
     TvInputCapture.instance.stop();
     super.dispose();
     lanMouseServer.leaveClient();
-  }
-
-  void _returnToMainMenu() {
-    if (_returningHome || !mounted) return;
-    _returningHome = true;
-    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _showErrorDialog(String error) {

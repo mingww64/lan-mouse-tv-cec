@@ -5,6 +5,15 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import af.shizuku.api.BinderContainer as AfBinderContainer
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -14,6 +23,8 @@ import rikka.shizuku.Shizuku
 
 class MainActivity: FlutterActivity() {
     private var startWhenShizukuReady = false
+    private var flutterControlChannel: MethodChannel? = null
+    private var captureEndedOverlay: LinearLayout? = null
 
     // Retain these wire-compatible parcelables in release builds. ShizukuPlus
     // sends them while delivering its binder, before the standard library gets
@@ -25,8 +36,107 @@ class MainActivity: FlutterActivity() {
     )
 
     private fun startCaptureService() {
+        hideCaptureEndedOverlay()
         val intent = Intent(this, TvInputRelayService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+    }
+
+    /** A real system overlay, shown above the HDMI source after the native
+     * grabber exits. Unlike a Flutter dialog it stays visible while TV input
+     * is selected, and its focused button is usable with a D-pad. */
+    private fun showCaptureEndedOverlay(profile: String, client: String): Boolean {
+        if (!Settings.canDrawOverlays(this)) return false
+        runOnUiThread {
+            try {
+                val wm = getSystemService(WindowManager::class.java)
+                captureEndedOverlay?.let { wm.removeView(it) }
+                val padding = (20 * resources.displayMetrics.density).toInt()
+                val panel = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(padding, padding, padding, padding)
+                    background = GradientDrawable().apply {
+                        setColor(0xf0202124.toInt())
+                        cornerRadius = 12 * resources.displayMetrics.density
+                        setStroke((1 * resources.displayMetrics.density).toInt(), 0xff5f6368.toInt())
+                    }
+                }
+                panel.addView(TextView(this).apply {
+                    text = "Capture ended"
+                    textSize = 22f
+                    setTextColor(Color.WHITE)
+                })
+                panel.addView(TextView(this).apply {
+                    text = client
+                    textSize = 15f
+                    setTextColor(0xffc7c7c7.toInt())
+                    setPadding(0, (6 * resources.displayMetrics.density).toInt(), 0, padding / 2)
+                })
+                val resume = Button(this).apply {
+                    text = "Resume capture"
+                    isAllCaps = false
+                    isFocusable = true
+                    setOnClickListener {
+                        val channel = flutterControlChannel
+                        if (channel == null) {
+                            Log.w("TvInputRelay", "resume overlay has no Flutter channel")
+                            return@setOnClickListener
+                        }
+                        channel.invokeMethod("resumeCapture", profile, object : MethodChannel.Result {
+                            override fun success(result: Any?) {
+                                if (result == true) {
+                                    Log.i("TvInputRelay", "resume overlay accepted for $profile")
+                                    hideCaptureEndedOverlay()
+                                } else Log.w("TvInputRelay", "resume overlay rejected for $profile")
+                            }
+                            override fun error(code: String, message: String?, details: Any?) {
+                                Log.w("TvInputRelay", "resume overlay failed: $code $message")
+                            }
+                            override fun notImplemented() {
+                                Log.w("TvInputRelay", "resume overlay callback is not implemented")
+                            }
+                        })
+                    }
+                }
+                panel.addView(resume, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                panel.addView(Button(this).apply {
+                    text = "Close"
+                    isAllCaps = false
+                    setOnClickListener {
+                        flutterControlChannel?.invokeMethod("dismissCaptureEnded", null, object : MethodChannel.Result {
+                            override fun success(result: Any?) { if (result == true) hideCaptureEndedOverlay() }
+                            override fun error(code: String, message: String?, details: Any?) {
+                                Log.w("TvInputRelay", "capture-ended overlay close failed: $code $message")
+                            }
+                            override fun notImplemented() { Log.w("TvInputRelay", "capture-ended overlay close is not implemented") }
+                        })
+                    }
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                val params = WindowManager.LayoutParams(
+                    (420 * resources.displayMetrics.density).toInt(),
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT,
+                ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = (72 * resources.displayMetrics.density).toInt() }
+                wm.addView(panel, params)
+                captureEndedOverlay = panel
+                resume.requestFocus()
+            } catch (error: Exception) {
+                Log.w("TvInputRelay", "unable to show capture-ended overlay", error)
+            }
+        }
+        return true
+    }
+
+    private fun hideCaptureEndedOverlay() {
+        runOnUiThread {
+            captureEndedOverlay?.let { view ->
+                try { getSystemService(WindowManager::class.java).removeView(view) } catch (_: Exception) { }
+            }
+            captureEndedOverlay = null
+        }
     }
 
     private fun startWhenPermitted() {
@@ -170,8 +280,8 @@ class MainActivity: FlutterActivity() {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) = TvInputRelayBridge.setSink(events)
                 override fun onCancel(arguments: Any?) = TvInputRelayBridge.setSink(null)
             })
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lan_mouse_tv_cec/control")
-            .setMethodCallHandler { call, result ->
+        flutterControlChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lan_mouse_tv_cec/control")
+        flutterControlChannel!!.setMethodCallHandler { call, result ->
                 val prefs = getSharedPreferences(TvInputRelayService.PREFS, MODE_PRIVATE)
                 when (call.method) {
                     "activateProfile" -> {
@@ -205,6 +315,18 @@ class MainActivity: FlutterActivity() {
                         }
                         result.success(null)
                     }
+                    "isCaptureRunning" -> result.success(
+                        prefs.getBoolean(TvInputRelayService.CAPTURE_SERVICE_RUNNING, false)
+                    )
+                    "showCaptureEndedOverlay" -> {
+                        val args = call.arguments as? Map<*, *>
+                        val profile = args?.get("profile") as? String
+                        val client = args?.get("client") as? String
+                        if (profile.isNullOrBlank() || client.isNullOrBlank()) {
+                            result.error("invalid_overlay", "Expected profile and client", null)
+                        } else result.success(showCaptureEndedOverlay(profile, client))
+                    }
+                    "hideCaptureEndedOverlay" -> { hideCaptureEndedOverlay(); result.success(null) }
                     "stop" -> { stopService(Intent(this, TvInputRelayService::class.java)); result.success(null) }
                     "getCustomFallback" -> result.success(mapOf(
                         "enabled" to prefs.getBoolean(TvInputRelayService.CUSTOM_FALLBACK_ENABLED, false),
