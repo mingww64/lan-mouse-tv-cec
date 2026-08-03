@@ -1,36 +1,88 @@
 # Lan Mouse TV CEC
 
-An Android TV client built from the GPL-3.0 [Lan Mouse Mobile](https://github.com/rohitsangwan01/lan-mouse-mobile) proof of concept. It uses that project's existing Lan Mouse DTLS protocol implementation, so the desktop runs the standard [Lan Mouse](https://github.com/feschber/lan-mouse) application—there is no custom Windows receiver.
+An Android TV client for the stock [Lan Mouse](https://github.com/feschber/lan-mouse)
+desktop receiver. It relays selected physical keyboard and mouse devices to
+one Lan Mouse desktop only while a chosen TV input is active, creating a
+CEC-style experience without modifying the desktop receiver.
 
-On a rooted TCL QM850G, the app observes the TV's physical key and relative-mouse events through `getevent`, then forwards them to the selected Lan Mouse desktop **only while a configured HDMI input is active**. The TV still receives all of its own input, making this behave like a CEC-style remote relay rather than taking over the device.
+This project is a GPL-3.0 derivative of
+[Lan Mouse Mobile](https://github.com/rohitsangwan01/lan-mouse-mobile).
 
-## Connect and configure
+## Features
 
-1. Run Lan Mouse on the desktop, add the TV's IP as a client, and authorize the TV fingerprint. Lan Mouse uses UDP port `4242` by default.
-2. Install and open this APK on the TV. Add the desktop address using the original Lan Mouse Mobile connection screen.
-3. On the connection page, select the HDMI settings icon. The relay starts fail-closed with `echo inactive`.
-4. With the PC's HDMI input selected, obtain the TV input-service state over ADB:
+- Shizuku-backed privileged native `getevent`/`EVIOCGRAB` capture.
+- Explicit USB keyboard and mouse device selection.
+- Live TV, AV, and HDMI discovery through Android's TV Input Framework
+  (`dumpsys tv_input`).
+- One profile per saved Lan Mouse client, with its own TV-input trigger and
+  capture-device selection. Only one relay connection is active at a time.
+- TCL source-change broadcasts as the primary gate; opt-in command fallback
+  and source-ID overlay for non-TCL TVs.
+- Relative mouse movement, high-resolution scrolling, raw-event diagnostics,
+  and a Ctrl+Alt+Shift+Z emergency capture exit.
 
-   ```sh
-   adb shell su -c 'dumpsys tv_input > /data/local/tmp/tv-input-state.txt'
-   adb pull /data/local/tmp/tv-input-state.txt
-   ```
+## Requirements
 
-5. Set the HDMI gate to a command that emits exactly `active` only when that input is selected. Test the command at an ADB shell first. Switch to another source and confirm the relay stops before depending on it.
+- Rooted Android TV with Shizuku running and permission granted to this app.
+- A Lan Mouse desktop receiver on the same network.
+- ARMv7 support for the included build instructions (validated on a TCL
+  QM850G running Android 11).
 
-## Input and safety boundaries
+## Configure the TV
 
-- Forwarded: standard keyboard/navigation keys, mouse movement, wheel, and left/right/middle buttons.
-- Excluded: TV power, volume, source, settings, and vendor-specific keys.
-- The capture service is foreground and does not use `EVIOCGRAB`; input continues to reach the TV.
-- Root is required to read `/dev/input/event*`. Denying root simply prevents the relay from starting.
-- Lan Mouse provides the encrypted desktop transport and its existing desktop authorization flow. The HDMI gate executes locally as root, so configure it only with a command you trust.
+1. Add the TV's LAN address as a Lan Mouse client on the desktop receiver and
+   authorize the fingerprint shown by this app.
+2. Open **TV input sources** on the home screen and discover the TV Input
+   Framework catalog.
+3. Add or select a Lan Mouse client.
+4. In the relay screen, select the profile's trigger input and safe USB
+   devices under **CEC capture devices**.
+5. Start capture. Input is forwarded only while the selected TV input is
+   active and the desktop client has acknowledged the connection.
 
-## Build
+The **Network** card only permits binding to an IPv4 address currently assigned
+to the TV. The relay validates the bind address and port before connecting.
 
-```sh
+## Build and install
+
+From PowerShell at the repository root:
+
+```powershell
+$env:PATH = "$env:USERPROFILE\.cargo\bin;C:\path\to\flutter\bin;" + $env:PATH
 flutter pub get
-flutter build apk --release
+flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
+Push-Location rust
+cargo ndk -t armeabi-v7a -o ..\android\app\src\main\jniLibs build --release
+Pop-Location
+flutter build apk --release --target-platform android-arm
+
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb -s <TV-IP>:5555 install -r build\app\outputs\flutter-apk\app-release.apk
+& $adb -s <TV-IP>:5555 shell am start -S -f 0x10008000 -n com.rohit.lan_mouse_mobile/.MainActivity
 ```
 
-The Android TV launcher intent and Android 11-compatible foreground service are in the Android app module. The TV capture bridge is native Kotlin; it sends events only to the Flutter/Rust Lan Mouse client.
+Do not use `monkey` to launch after an update. TCL can resume a stale Android
+overlay-permission Settings page after package replacement; the explicit
+`am start` command creates a clean task.
+
+## Diagnostics
+
+```powershell
+& $adb -s <TV-IP>:5555 logcat -s TvInputRelay
+& $adb -s <TV-IP>:5555 shell dumpsys tv_input
+& $adb -s <TV-IP>:5555 shell getevent -il
+```
+
+Enable verbose logging only while mapping input devices; it logs every captured
+raw key event.
+
+## Safety
+
+Exclusively grab only devices you explicitly select. Never select the TCL IR
+receiver, TV keypad, power, sleep, wake, restart, or screen-lock inputs. The
+app filters safety-critical keys, and the native exit chord is
+**Ctrl+Alt+Shift+Z**.
+
+## License
+
+[GNU General Public License v3.0](LICENSE).
