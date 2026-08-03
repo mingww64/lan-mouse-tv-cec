@@ -44,7 +44,7 @@ From the repository root in PowerShell:
 $env:PATH = "$env:USERPROFILE\.cargo\bin;C:\Users\mingww64\Documents\QM8\tools\flutter\bin;" + $env:PATH
 flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 Push-Location rust
-cargo ndk -t armeabi-v7a -o ..\android\app\src\main\jniLibs build --release
+cargo ndk -t armeabi-v7a -t arm64-v8a -t x86_64 -o ..\android\app\src\main\jniLibs build --release
 Pop-Location
 flutter build apk --release --target-platform android-arm
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
@@ -58,7 +58,7 @@ $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
   app task and prevent the stale page from reappearing.
 
 - After any `flutter_rust_bridge` upgrade, regenerate bindings and rebuild the
-  ARMv7 library before installing. Runtime and generated codegen versions must
+  native libraries before installing. Runtime and generated codegen versions must
   match or Flutter displays a blank screen at startup.
 - Current Android baseline: AGP 8.11.1, Gradle 8.14, Kotlin 2.2.20.
 - Validate Dart code with `flutter analyze lib`. The vendored CargoKit tree is

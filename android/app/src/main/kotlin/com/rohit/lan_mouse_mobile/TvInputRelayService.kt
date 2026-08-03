@@ -181,7 +181,7 @@ class TvInputRelayService : Service() {
         val bridge = File(storage, "input_grab_bridge")
         // Refresh on every launch: app-private files survive APK upgrades, so
         // retaining an old helper here silently defeats native bridge fixes.
-        assets.open("input_grab_bridge").use { input -> bridge.outputStream().use { input.copyTo(it) } }
+        assets.open(bridgeAssetName()).use { input -> bridge.outputStream().use { input.copyTo(it) } }
         val args = devices.joinToString(" ") { "'${it.replace("'", "'\\\"'\\\"'")}'" }
         return "cp '${bridge.absolutePath}' /data/local/tmp/lan_mouse_input_grab && chmod 700 /data/local/tmp/lan_mouse_input_grab && exec /data/local/tmp/lan_mouse_input_grab $args"
     }
@@ -213,6 +213,13 @@ class TvInputRelayService : Service() {
             Log.w(TAG, "could not resolve capture device names", error)
             savedPaths.toList()
         }
+    }
+
+    /** The release APK contains a helper for each supported native ABI. */
+    private fun bridgeAssetName(): String = when {
+        Build.SUPPORTED_ABIS.any { it == "arm64-v8a" } -> "input_grab_bridge_arm64-v8a"
+        Build.SUPPORTED_ABIS.any { it == "x86_64" } -> "input_grab_bridge_x86_64"
+        else -> "input_grab_bridge" // armeabi-v7a
     }
 
     /**

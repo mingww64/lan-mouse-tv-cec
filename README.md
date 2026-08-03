@@ -52,13 +52,19 @@ $env:PATH = "$env:USERPROFILE\.cargo\bin;C:\path\to\flutter\bin;" + $env:PATH
 flutter pub get
 flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 Push-Location rust
-cargo ndk -t armeabi-v7a -o ..\android\app\src\main\jniLibs build --release
+cargo ndk -t armeabi-v7a -t arm64-v8a -t x86_64 -o ..\android\app\src\main\jniLibs build --release
 Pop-Location
 flutter build apk --release --target-platform android-arm
 
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 & $adb -s <TV-IP>:5555 install -r build\app\outputs\flutter-apk\app-release.apk
 & $adb -s <TV-IP>:5555 shell am start -S -f 0x10008000 -n com.rohit.lan_mouse_mobile/.MainActivity
+```
+
+For a universal release APK, build all packaged ABIs instead:
+
+```powershell
+flutter build apk --release --target-platform android-arm,android-arm64,android-x64
 ```
 
 Do not use `monkey` to launch after an update. TCL can resume a stale Android
